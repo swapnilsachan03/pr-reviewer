@@ -1,0 +1,35 @@
+name: PR Reviewer
+description: AI-powered pull request reviewer
+
+inputs:
+  github_token:
+    description: GitHub token
+    required: true
+
+  fast_provider:
+    description: Provider for the fast model (e.g. anthropic, google, openai)
+    required: true
+
+  fast_model:
+    description: Model ID for the fast model (e.g. claude-haiku-5-5)
+    required: true
+
+  fast_api_key:
+    description: API key for the fast model's provider
+    required: true
+
+  large_provider:
+    description: Provider for the large model (e.g anthropic, google, openai)
+    required: true
+
+  large_model:
+    description: Model ID for the large model (e.g. claude-opus-5-5)
+    required: true
+
+  large_api_key:
+    description: API key for the large model's provider
+    required: true
+
+runs:
+  using: docker
+  image: Dockerfile
