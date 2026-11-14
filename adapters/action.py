@@ -15,7 +15,7 @@ def get_github_client(token: str | None):
         raise RuntimeError("github_token is missing")
 
     auth = Auth.Token(token)
-    return Github(auth=auth)
+    return Github(auth=auth, per_page=100)
 
 
 def get_pr_event():
@@ -36,21 +36,27 @@ def main() -> int:
         raise RuntimeError("Can not read GitHub repository")
 
     event = get_pr_event()
+    event_pr = event.get("pull_request", {})
 
-    pr = event.get("pull_request", {})
-    pr_number = pr.get("number")
-
-    if not pr:
+    if not event_pr:
         raise RuntimeError("This workflow event does not contain a PR")
 
-    if event.get("action") not in HANDLED or pr.get("draft"):
+    pr_number = event_pr.get("number")
+
+    if event.get("action") not in HANDLED or event_pr.get("draft"):
         print("Nothing to review.")
         return 0
 
     gh = get_github_client(token)
 
-    pr_context = build_pr_context(gh, repository_name, pr_number, token)
-    run_review(gh, pr_context)
+    try:
+        pr_context = build_pr_context(
+            gh, repository_name, pr_number, token, event_pr["head"]["sha"]
+        )
+        run_review(gh, pr_context)
+
+    finally:
+        gh.close()
 
     return 0
 

@@ -5,42 +5,54 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from .schema import ChangedFile, PRContext
+from .errors import ReviewSkipped
+from .config import MAX_CHANGED_LINES, MAX_FILES, MAX_DIFF_BYTES, MAX_FILE_BYTES
 
 
 def build_pr_context(
-    gh: Github, repo_name: str, pr_number: int, token: str | None
+    gh: Github,
+    repo_name: str,
+    pr_number: int,
+    token: str | None,
+    expected_head_sha: str,
 ) -> PRContext:
-    try:
-        repo = gh.get_repo(repo_name)
-        pr = repo.get_pull(pr_number)
+    repo = gh.get_repo(repo_name)
+    pr = repo.get_pull(pr_number)
 
-        owner, repo_name = repo_name.split("/", 1)
+    if pr.state != "open":
+        raise ReviewSkipped(f"PR is {pr.state}")
 
-        base_sha = pr.base.sha
-        head_sha = pr.head.sha
-
-        files = fetch_changed_files(pr, repo, head_sha)
-        diff = fetch_unified_diff(owner, repo_name, pr_number, token)
-
-        return PRContext(
-            repository=repo_name,
-            pr_number=pr_number,
-            title=pr.title,
-            description=pr.body or "",
-            author=pr.user.login,
-            labels=[label.name for label in pr.labels],
-            state=pr.state,
-            url=pr.html_url,
-            base_branch=pr.base.ref,
-            head_branch=pr.head.ref,
-            base_sha=base_sha,
-            head_sha=head_sha,
-            diff=diff,
-            files=files,
+    elif expected_head_sha and pr.head.sha != expected_head_sha:
+        raise ReviewSkipped(
+            f"Stale run: event {expected_head_sha[:7]}, PR head {pr.head.sha[:7]}"
         )
 
-    finally:
-        gh.close()
+    check_size(pr)
+
+    owner, name = repo_name.split("/", 1)
+
+    base_sha = pr.base.sha
+    head_sha = pr.head.sha
+
+    files = fetch_changed_files(pr, repo, head_sha)
+    diff = fetch_unified_diff(owner, name, pr_number, token)
+
+    return PRContext(
+        repository=repo_name,
+        pr_number=pr_number,
+        title=pr.title,
+        description=pr.body or "",
+        author=pr.user.login,
+        labels=[label.name for label in pr.labels],
+        state=pr.state,
+        url=pr.html_url,
+        base_branch=pr.base.ref,
+        head_branch=pr.head.ref,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        diff=diff,
+        files=files,
+    )
 
 
 def fetch_changed_files(
@@ -78,6 +90,26 @@ def fetch_changed_files(
     return files
 
 
+def fetch_file_contents(repo, file_name, head_sha):
+    content = repo.get_contents(
+        file_name,
+        head_sha,
+    )
+
+    if isinstance(content, list):
+        # Not source files: directories, source modules, or symlinks.
+        return None
+
+    elif content.size > MAX_FILE_BYTES:
+        raise ValueError(f"{content.size} bytes exceeds {MAX_FILE_BYTES}")
+
+    else:
+        return content.decoded_content.decode(
+            "utf-8",
+            errors="replace",
+        )
+
+
 def fetch_unified_diff(
     owner: str, repo_name: str, pr_number: int, token: str | None
 ):
@@ -96,22 +128,28 @@ def fetch_unified_diff(
         timeout=30,
     )
 
+    if response.status_code == 406:
+        raise ReviewSkipped("GitHub refused to serve the diff (too large)")
+
     response.raise_for_status()
+
+    if len(response.content) > MAX_DIFF_BYTES:
+        raise ReviewSkipped(
+            f"PR diff is {len(response.content)} bytes (limit {MAX_DIFF_BYTES})"
+        )
 
     return response.text
 
 
-def fetch_file_contents(repo, file_name, head_sha):
-    content = repo.get_contents(
-        file_name,
-        ref=head_sha,
-    )
+def check_size(pr: PullRequest) -> None:
+    if pr.changed_files > MAX_FILES:
+        raise ReviewSkipped(
+            f"PR touches {pr.changed_files} files (limit {MAX_FILES})"
+        )
 
-    if isinstance(content, list):
-        # Directories are not source files.
-        return None
-    else:
-        return content.decoded_content.decode(
-            "utf-8",
-            errors="replace",
+    lines = pr.additions + pr.deletions
+
+    if lines > MAX_CHANGED_LINES:
+        raise ReviewSkipped(
+            f"PR changes {lines} lines (limit {MAX_CHANGED_LINES})"
         )
