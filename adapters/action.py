@@ -1,13 +1,16 @@
 import json
 import os
-import requests
+import sys
 
 from github import Auth, Github
 
+from ..core.github_source import build_pr_context
+from ..core.pipeline import run_review
 
-def get_github_client():
-    token = os.environ.get("INPUT_GITHUB_TOKEN")
+HANDLED = {"opened", "synchronize", "reopened", "ready_for_review"}
 
+
+def get_github_client(token: str | None):
     if not token:
         raise RuntimeError("github_token is missing")
 
@@ -25,155 +28,32 @@ def get_pr_event():
         return json.load(file)
 
 
-def fetch_pr_metadata(pull):
-    return {
-        "number": pull.number,
-        "title": pull.title,
-        "description": pull.body or "",
-        "author": pull.user.login,
-        "base_branch": pull.base.ref,
-        "head_branch": pull.head.ref,
-        "state": pull.state,
-        "url": pull.html_url,
-    }
+def main() -> int:
+    token = os.environ.get("INPUT_GITHUB_TOKEN")
+    repository_name = os.environ.get("GITHUB_REPOSITORY")
 
-
-def fetch_changed_files(pull):
-    files = []
-
-    for file in pull.get_files():
-        files.append(
-            {
-                "path": file.filename,
-                "status": file.status,
-                "additions": file.additions,
-                "deletions": file.deletions,
-                "changes": file.changes,
-                "patch": file.patch,
-            }
-        )
-
-    return files
-
-
-def fetch_file_contents(repo, files, head_sha):
-    for file in files:
-        if file["status"] == "removed":
-            file["content_at_head"] = None
-            continue
-
-        try:
-            content = repo.get_contents(
-                file["path"],
-                ref=head_sha,
-            )
-
-            if isinstance(content, list):
-                # Directories are not source files.
-                file["content_at_head"] = None
-            else:
-                file["content_at_head"] = content.decoded_content.decode(
-                    "utf-8",
-                    errors="replace",
-                )
-
-        # Log the failure rather than silently pretending
-        # that the file was successfully retrieved.
-
-        except Exception as exc:
-            file["content_at_head"] = None
-            file["content_fetch_error"] = str(exc)
-
-    return files
-
-
-def fetch_unified_diff(owner, repo_name, pr_number, token):
-    url = (
-        f"https://api.github.com/repos/"
-        f"{owner}/{repo_name}/pulls/{pr_number}"
-    )
-
-    response = requests.get(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.diff",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        timeout=30,
-    )
-
-    response.raise_for_status()
-
-    return response.text
-
-
-def build_review_context():
-    repository_name = os.environ["GITHUB_REPOSITORY"]
-    token = os.environ["INPUT_GITHUB_TOKEN"]
+    if not repository_name:
+        raise RuntimeError("Can not read GitHub repository")
 
     event = get_pr_event()
 
-    pr_number = event.get("pull_request", {}).get("number")
+    pr = event.get("pull_request", {})
+    pr_number = pr.get("number")
 
-    if not pr_number:
+    if not pr:
         raise RuntimeError("This workflow event does not contain a PR")
 
-    owner, repo_name = repository_name.split("/", 1)
+    if event.get("action") not in HANDLED or pr.get("draft"):
+        print("Nothing to review.")
+        return 0
 
-    github = get_github_client()
+    gh = get_github_client(token)
 
-    try:
-        repo = github.get_repo(repository_name)
-        pull = repo.get_pull(pr_number)
+    pr_context = build_pr_context(gh, repository_name, pr_number, token)
+    run_review(gh, pr_context)
 
-        base_sha = pull.base.sha
-        head_sha = pull.head.sha
-
-        metadata = fetch_pr_metadata(pull)
-
-        files = fetch_changed_files(pull)
-
-        files = fetch_file_contents(
-            repo,
-            files,
-            head_sha,
-        )
-
-        unified_diff = fetch_unified_diff(
-            owner,
-            repo_name,
-            pr_number,
-            token,
-        )
-
-        return {
-            "repository": repository_name,
-            "pr_number": pr_number,
-            "metadata": metadata,
-            "base_sha": base_sha,
-            "head_sha": head_sha,
-            "files": files,
-            "unified_diff": unified_diff,
-        }
-
-    finally:
-        github.close()
-
-
-def main():
-    review_context = build_review_context()
-
-    # pass this context to core review system.
-    #
-    # review = run_review(review_context)
-    # publish_review(review)
-
-    print(
-        f"Successfully collected PR #{review_context['pr_number']} "
-        f"from {review_context['repository']}"
-    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
