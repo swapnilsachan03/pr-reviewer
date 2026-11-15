@@ -1,7 +1,7 @@
-from enum import Enum
-from typing import Optional
-
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, ConfigDict, model_validator
+
+from core.enums import FindingCategory, FindingSeverity
 
 
 class ChangedFile(BaseModel):
@@ -35,25 +35,11 @@ class PRContext(BaseModel):
     files: list[ChangedFile]
 
 
-class FindingCategory(str, Enum):
-    QUALITY = "quality"
-    READABILITY = "readability"
-    CORRECTNESS = "correctness"
-    BLAST_RADIUS = "blast_radius"
-    GUIDELINE = "guideline"
-    SECURITY = "security"
-
-
-class FindingSeverity(str, Enum):
-    SEVERE = "severe"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    NIT = "nit"
-
-
 class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    fingerprint: str = Field(min_length=1)
+    rule_id: Optional[str] = None
 
     category: FindingCategory
     severity: FindingSeverity
@@ -66,7 +52,7 @@ class Finding(BaseModel):
     title: str = Field(min_length=1)
     explanation: str = Field(min_length=1)
 
-    suggested_patch: Optional[str] = None
+    suggested_replacement: Optional[str] = None
     evidence: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -74,3 +60,25 @@ class Finding(BaseModel):
         if self.end_line < self.start_line:
             raise ValueError("end_line must be >= start_line")
         return self
+
+
+class DiffLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1)
+
+    # Final line of the comment range.
+    line: int = Field(ge=1)
+    side: Literal["LEFT", "RIGHT"]
+
+    # Optional beginning of a multi-line comment.
+    start_line: int | None = Field(default=None, ge=1)
+    start_side: Literal["LEFT", "RIGHT"] | None = None
+
+
+class PublishResult(BaseModel):
+    review_id: int
+    total_findings: int
+    inline_comments_created: int
+    inline_comments_skipped: int
+    summary_only_findings: int

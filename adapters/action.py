@@ -4,10 +4,10 @@ import sys
 
 from github import Auth, Github
 
-from ..core.github_source import build_pr_context
-from ..core.pipeline import run_review
-
-HANDLED = {"opened", "synchronize", "reopened", "ready_for_review"}
+from core.review_context import build_pr_context
+from core.pipeline import run_review
+from core.config import HANDLED_PR_STATES
+from core.publisher import publish_review
 
 
 def get_github_client(token: str | None):
@@ -43,7 +43,7 @@ def main() -> int:
 
     pr_number = event_pr.get("number")
 
-    if event.get("action") not in HANDLED or event_pr.get("draft"):
+    if event.get("action") not in HANDLED_PR_STATES or event_pr.get("draft"):
         print("Nothing to review.")
         return 0
 
@@ -53,7 +53,20 @@ def main() -> int:
         pr_context = build_pr_context(
             gh, repository_name, pr_number, token, event_pr["head"]["sha"]
         )
-        run_review(gh, pr_context)
+
+        findings = run_review(gh, pr_context)
+
+        result = publish_review(
+            gh=gh,
+            findings=findings,
+            context=pr_context,
+            locations={},
+        )
+
+        print(f"Review ID: {result.review_id}")
+        print(f"Inline comments: {result.inline_comments_created}")
+        print(f"Skipped duplicates: {result.inline_comments_skipped}")
+        print(f"Summary-only findings: {result.summary_only_findings}")
 
     finally:
         gh.close()

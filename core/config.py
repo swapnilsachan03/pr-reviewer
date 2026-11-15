@@ -1,5 +1,15 @@
+import re
+
 MAX_FILES = 750
 MAX_CHANGED_LINES = 25_000
 MAX_DIFF_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_FILE_BYTES = 1_000_000  # 1 MB
 MAX_TOTAL_CONTENT_BYTES = 20 * 1024 * 1024  # 20 MB
+
+HANDLED_PR_STATES = {"opened", "synchronize", "reopened", "ready_for_review"}
+
+BOT_MARKER = "<!-- pr-review-bot -->"
+
+FINGERPRINT_PATTERN = re.compile(
+    r"<!-- pr-review-bot:fingerprint=([a-f0-9]+) -->"
+)
