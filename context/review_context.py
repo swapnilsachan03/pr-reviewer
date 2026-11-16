@@ -4,9 +4,15 @@ from github import Github
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from .schema import ChangedFile, PRContext
-from .errors import ReviewSkipped
-from .config import MAX_CHANGED_LINES, MAX_FILES, MAX_DIFF_BYTES, MAX_FILE_BYTES
+from core.config import (
+    MAX_CHANGED_LINES,
+    MAX_FILES,
+    MAX_DIFF_BYTES,
+    MAX_FILE_BYTES,
+)
+
+from context.schema import ChangedFile, PRContext
+from context.errors import ReviewSkipped
 
 
 def build_pr_context(

@@ -1,4 +1,4 @@
-from core.schema import Finding
+from review.schema import Finding
 from core.config import BOT_MARKER
 
 

@@ -4,10 +4,10 @@ import sys
 
 from github import Auth, Github
 
-from core.review_context import build_pr_context
-from core.pipeline import run_review
 from core.config import HANDLED_PR_STATES
-from core.publisher import publish_review
+from review.pipeline import run_review
+from context.review_context import build_pr_context
+from comments.publisher import publish_review
 
 
 def get_github_client(token: str | None):

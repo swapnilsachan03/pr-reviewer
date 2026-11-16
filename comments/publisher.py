@@ -2,11 +2,13 @@ from github import Github
 from github.PullRequest import PullRequest
 
 from core.config import FINGERPRINT_PATTERN
-from core.errors import ReviewSkipped
-from core.schema import Finding, DiffLocation, PublishResult
-from core.review_context import PRContext
+from review.schema import Finding
 
-from core.comment_renderer import render_inline_comment, render_summary
+from context.errors import ReviewSkipped
+from context.review_context import PRContext
+
+from comments.schema import DiffLocation, PublishResult
+from comments.renderer import render_inline_comment, render_summary
 
 
 def publish_review(
